@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Previewer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Previewer home">
+      <span class="brand-mark" aria-hidden="true">P</span>
+      <span><strong>Previewer</strong><small>Private review workspace</small></span>
+    </a>
+    <div class="topbar-actions">
+      <div class="capacity" aria-label="Storage capacity">
+        <span id="capacity-label">Checking storage</span>
+        <span class="meter"><span id="capacity-meter"></span></span>
+      </div>
+      <button id="pin-settings" class="settings-button" type="button" aria-label="Change human PIN" title="Change human PIN">PIN</button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Preview areas">
+    <button class="tab active" type="button" data-tab="artifacts" aria-selected="true">Artifacts <span id="artifact-count">0</span></button>
+    <button class="tab" type="button" data-tab="live" aria-selected="false">Live <span id="live-count">0</span></button>
+    <button class="tab" type="button" data-tab="movies" aria-selected="false">Movies <span id="movie-count">0</span></button>
+    <button class="tab" type="button" data-tab="models" aria-selected="false">3D Models <span id="model-count">0</span></button>
+    <button class="tab" type="button" data-tab="review" aria-selected="false">Review Inbox <span id="review-count">0</span></button>
+  </nav>
+
+  <main id="workspace" class="workspace" tabindex="-1">
+    <aside class="library" aria-label="Items">
+      <div class="library-head">
+        <div><span class="eyebrow" id="section-eyebrow">Approved</span><h1 id="section-title">Artifacts</h1></div>
+        <div class="library-actions">
+          <button id="delete-selected" class="danger bulk-delete" type="button" hidden></button>
+          <button id="bulk-delete-old" class="danger bulk-delete" type="button" hidden></button>
+          <button id="refresh" class="icon-button" type="button" aria-label="Refresh items" title="Refresh">↻</button>
+        </div>
+      </div>
+      <label class="search"><span class="sr-only">Filter items</span><input id="filter" type="search" placeholder="Filter title or run ID"></label>
+      <div id="sort-control" class="sort" hidden><label for="sort">Sort by</label><select id="sort"><option value="newest">Date (newest)</option><option value="oldest">Date (oldest)</option><option value="largest">Size (largest)</option><option value="smallest">Size (smallest)</option><option value="name-az">Name (A–Z)</option><option value="name-za">Name (Z–A)</option></select><button id="scroll-up" class="scroll-button" type="button" aria-label="Scroll list up" title="Scroll up">▲</button><button id="scroll-down" class="scroll-button" type="button" aria-label="Scroll list down" title="Scroll down">▼</button></div>
+      <div id="item-list" class="item-list" role="list"></div>
+      <div id="library-resizer" class="library-resizer" role="separator" aria-orientation="vertical" aria-label="Resize item list" title="Drag to resize" tabindex="0"></div>
+    </aside>
+
+    <section class="stage" aria-label="Preview stage">
+      <div id="empty" class="empty-state">
+        <span class="empty-glyph" aria-hidden="true">□</span>
+        <h2>Select an item</h2>
+        <p>Verified evidence and approved previews appear here.</p>
+      </div>
+      <article id="detail" class="detail" hidden>
+        <header class="detail-head">
+          <div><span id="detail-kind" class="badge"></span><h2 id="detail-title"></h2><p id="detail-meta"></p></div>
+          <div id="detail-actions" class="actions"></div>
+        </header>
+        <div id="preview-shell" class="expandable">
+          <button type="button" class="expand-toggle" aria-expanded="false" aria-controls="preview-shell">Expand</button>
+          <div id="canvas-toolbar" class="canvas-toolbar" hidden>
+            <div id="live-tabs" class="live-tabs" aria-label="Open live previews"></div>
+            <div class="toolbar-actions">
+              <label class="address"><span class="sr-only">Live preview address</span><input id="live-address" type="url" aria-label="Live preview address"></label>
+              <button type="button" id="navigate-frame">Go</button>
+              <button type="button" id="reload-frame">Reload</button>
+              <label>Viewport <select id="viewport"><option value="responsive">Responsive</option><option value="desktop">Desktop 1440</option><option value="mobile">Mobile 390</option></select></label>
+              <a id="external-open" target="_blank" rel="noopener noreferrer">Open externally</a>
+            </div>
+          </div>
+          <div id="preview" class="preview"></div>
+        </div>
+        <section id="receipt-panel" class="receipt-panel expandable">
+          <div class="receipt-heading"><h3>Verification receipt</h3><div class="receipt-tools"><span id="receipt-status" class="status"></span><button type="button" class="expand-toggle" aria-expanded="false" aria-controls="receipt-panel">Expand</button></div></div>
+          <p class="receipt-note">Evidence proves only the checks listed here. It is not human approval or publication.</p>
+          <ul id="proved-list"></ul>
+          <div id="warnings"></div>
+          <div id="evidence" class="evidence-grid"></div>
+        </section>
+      </article>
+    </section>
+  </main>
+
+  <dialog id="pin-settings-dialog" aria-labelledby="pin-settings-title">
+    <form method="dialog" id="pin-settings-form">
+      <span class="eyebrow">Security setting</span>
+      <h2 id="pin-settings-title">Change human PIN</h2>
+      <p id="pin-settings-description">The current PIN is required. Previewer stores only a salted scrypt hash.</p>
+      <label for="current-pin">Current PIN<input id="current-pin" inputmode="numeric" type="password" minlength="4" maxlength="32" pattern="[0-9]{4,32}" autocomplete="current-password" required></label>
+      <label for="new-pin">New PIN<input id="new-pin" inputmode="numeric" type="password" minlength="4" maxlength="32" pattern="[0-9]{4,32}" autocomplete="new-password" required aria-describedby="new-pin-help"></label>
+      <small id="new-pin-help" class="field-help">Use 4 to 32 digits.</small>
+      <label for="confirm-new-pin">Confirm new PIN<input id="confirm-new-pin" inputmode="numeric" type="password" minlength="4" maxlength="32" pattern="[0-9]{4,32}" autocomplete="new-password" required></label>
+      <p id="pin-settings-error" class="form-error" aria-live="assertive"></p>
+      <div class="dialog-actions"><button value="cancel" type="button" id="cancel-pin-settings">Cancel</button><button value="confirm" class="primary" type="submit">Save PIN</button></div>
+    </form>
+  </dialog>
+  <dialog id="pin-dialog" aria-labelledby="pin-dialog-title">
+    <form method="dialog" id="pin-dialog-form">
+      <span class="eyebrow">Remote device</span>
+      <h2 id="pin-dialog-title">Enter PIN</h2>
+      <p>Approve and delete need the PIN on this device.</p>
+      <label for="action-pin">PIN<input id="action-pin" inputmode="numeric" type="password" minlength="4" maxlength="32" pattern="[0-9]{4,32}" autocomplete="current-password" required></label>
+      <p id="pin-dialog-error" class="form-error" aria-live="assertive"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-action-pin">Cancel</button><button value="ok" class="primary" type="submit">OK</button></div>
+    </form>
+  </dialog>
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

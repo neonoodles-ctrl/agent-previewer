@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "previewer"
+version = "0.1.0"
+description = "Private, human-controlled artifact and live preview workspace"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+  "Pillow>=12,<13",
+  "playwright>=1.62,<2",
+]
+
+[project.scripts]
+previewer = "previewer.cli:main"
+
+[tool.setuptools]
+packages = ["previewer"]
+
+[tool.setuptools.package-data]
+previewer = ["static/*", "static/vendor/**/*"]
+

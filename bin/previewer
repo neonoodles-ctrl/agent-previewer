@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from previewer.cli import main
+
+raise SystemExit(main())

@@ -1,0 +1,10 @@
+:root { color-scheme: dark; background: #111519; }
+body { margin: 0 auto; max-width: 920px; padding: 56px; font: 16px/1.6 system-ui, sans-serif; color: #dce3e9; background: #111519; overflow-wrap: anywhere; }
+h1, h2, h3 { line-height: 1.15; }
+pre, code { background: #20272e; color: #e2e8ee; }
+pre { white-space: pre-wrap; padding: 20px; border-radius: 12px; }
+.bullet { padding-left: 16px; }
+a { color: #91c9ef; }
+blockquote, th, td, hr { border-color: #39434d; }
+::selection { background: #34546b; color: #fff; }
+@media (max-width: 600px) { body { padding: 24px; } }

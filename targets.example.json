@@ -1,0 +1,10 @@
+{
+  "targets": [
+    {
+      "id": "android-test",
+      "label": "Android test VM",
+      "kind": "novnc",
+      "url": "http://127.0.0.1:6080/vnc.html"
+    }
+  ]
+}
