@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from PIL import Image, ImageStat
+from PIL import Image, ImageChops, ImageStat
 
 from previewer.adapters import previewer_item_url
 from previewer.cli import main
@@ -1171,6 +1171,27 @@ class EndToEndProofTests(unittest.TestCase):
         width, height = shot.size
         return tuple(ImageStat.Stat(shot.crop((width // 2 - 20, height // 2 - 20, width // 2 + 20, height // 2 + 20))).mean)
 
+    def model_shape(self, page) -> tuple[float, float, float, float]:
+        """Centre x, centre y, width and height on screen of everything that is not background, once the camera stops."""
+        overlays = "(items, value) => items.forEach((item) => { item.style.visibility = value; })"
+        hidden = page.locator(".model-toolbar, .model-stats, .model-help")
+        last = None
+        for _ in range(40):
+            hidden.evaluate_all(overlays, "hidden")
+            shot = Image.open(io.BytesIO(page.locator(".model-canvas").screenshot())).convert("RGB")
+            hidden.evaluate_all(overlays, "")
+            # Stay clear of the panel's rounded corners.
+            shot = shot.crop((16, 16, shot.width - 16, shot.height - 16))
+            background = Image.new("RGB", shot.size, (0x15, 0x19, 0x1E))
+            found = ImageChops.difference(shot, background).convert("L").point(lambda value: 255 if value > 12 else 0).getbbox()
+            # Nothing found means the first frame is not drawn yet.
+            shape = found and ((found[0] + found[2]) / 2, (found[1] + found[3]) / 2, found[2] - found[0], found[3] - found[1])
+            if shape and shape == last:
+                return shape
+            last = shape
+            page.wait_for_timeout(200)
+        self.fail(f"The model did not settle on screen: {last}")
+
     def test_model_viewer_shows_checks_animation_notes_and_slicer(self):
         model = self.model_item("cube.glb", cube_glb(texture=checker_png(), animate=True), "Spinning cube")
         opened = []
@@ -1304,6 +1325,117 @@ class EndToEndProofTests(unittest.TestCase):
             page.get_by_role("button", name="Delete", exact=True).click()
             expect(page.locator("#model-count")).to_have_text("0")
             self.assertEqual(self.request("GET", f"/api/items/{model['id']}")[2]["state"], "deleted")
+            self.assertEqual(problems, [])
+            browser.close()
+
+    def test_model_viewer_pans_and_zooms_to_the_pointer(self):
+        self.model_item("cube.glb", cube_glb(), "Plain cube")
+        from playwright.sync_api import expect, sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path=self.config.chromium_path)
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            problems = []
+            page.on("console", lambda message: problems.append(message.text) if message.type == "error" else None)
+            page.on("pageerror", lambda error: problems.append(str(error)))
+            page.goto(self.base, wait_until="networkidle", timeout=15000)
+            page.click("[data-tab=models]")
+            page.locator("#item-list .item-card", has_text="Plain cube").click()
+            expect(page.locator(".model-stats")).to_have_text("12 triangles · 50.0 × 50.0 × 50.0 mm", timeout=20000)
+            page.get_by_role("button", name="Show the model in plain clay").click()
+            page.get_by_role("button", name="Show the floor grid").click()
+            reset = page.get_by_role("button", name="Reset the camera")
+            zoom_out = page.get_by_role("button", name="Zoom out")
+            pan = page.get_by_role("button", name="Left-drag moves the view")
+            box = page.locator(".model-canvas").bounding_box()
+            middle_x, middle_y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+            def go_home() -> tuple[float, float, float, float]:
+                """The framed view pulled back a little, so the cube stays whole on screen while it is moved."""
+                reset.click()
+                self.model_shape(page)
+                for _ in range(3):
+                    zoom_out.click()
+                return self.model_shape(page)
+
+            def drag(button: str = "left") -> None:
+                page.mouse.move(middle_x, middle_y)
+                page.mouse.down(button=button)
+                page.mouse.move(middle_x + 120, middle_y + 60, steps=8)
+                page.mouse.up(button=button)
+
+            def assert_same_view(shape, expected) -> None:
+                # Damping can leave a pixel of drift after the camera is put back.
+                self.assertLess(max(abs(value - other) for value, other in zip(shape, expected)), 3, (expected, shape))
+
+            def assert_moved_with_the_drag(shape, start) -> None:
+                self.assertAlmostEqual(shape[0] - start[0], 120, delta=15, msg=(start, shape))
+                self.assertAlmostEqual(shape[1] - start[1], 60, delta=15, msg=(start, shape))
+
+            def assert_rotated(shape, start) -> None:
+                self.assertLess(abs(shape[0] - start[0]) + abs(shape[1] - start[1]), 60, (start, shape))
+                self.assertGreater(abs(shape[2] - start[2]) + abs(shape[3] - start[3]), 8, (start, shape))
+
+            def wheel_in_at(x: float, y: float) -> None:
+                page.mouse.move(x, y)
+                for _ in range(4):
+                    page.mouse.wheel(0, -240)
+                    page.wait_for_timeout(60)
+
+            home = go_home()
+            self.assertLess(home[2], box["width"] * 0.6, home)
+
+            drag("right")
+            assert_moved_with_the_drag(self.model_shape(page), home)
+            assert_same_view(go_home(), home)
+
+            expect(pan).to_have_attribute("aria-pressed", "false")
+            drag()
+            assert_rotated(self.model_shape(page), home)
+            assert_same_view(go_home(), home)
+
+            # With Pan on, the two drags swap; Reset view leaves Pan as it was.
+            expect(page.locator(".model-help")).to_have_text("Drag to rotate · right-drag to pan · wheel zooms at the pointer")
+            pan.click()
+            expect(pan).to_have_attribute("aria-pressed", "true")
+            expect(page.locator(".model-help")).to_have_text("Drag to pan · right-drag to rotate · wheel zooms at the pointer")
+            drag()
+            assert_moved_with_the_drag(self.model_shape(page), home)
+            assert_same_view(go_home(), home)
+            expect(pan).to_have_attribute("aria-pressed", "true")
+            drag("right")
+            assert_rotated(self.model_shape(page), home)
+            assert_same_view(go_home(), home)
+            pan.click()
+            expect(pan).to_have_attribute("aria-pressed", "false")
+            drag()
+            assert_rotated(self.model_shape(page), home)
+            assert_same_view(go_home(), home)
+
+            # Zooming at the middle of the view is the baseline; zooming beside it must slide the cube away from the pointer.
+            wheel_in_at(middle_x, middle_y)
+            centred = self.model_shape(page)
+            growth = centred[2] / home[2]
+            self.assertGreater(growth, 1.3, (home, centred))
+            assert_same_view(go_home(), home)
+            wheel_in_at(middle_x + 100, middle_y)
+            zoomed = self.model_shape(page)
+            self.assertAlmostEqual(zoomed[0] - centred[0], -(growth - 1) * 100, delta=15, msg=(centred, zoomed))
+            self.assertAlmostEqual(zoomed[1], centred[1], delta=12, msg=(centred, zoomed))
+            self.assertAlmostEqual(zoomed[2], centred[2], delta=12, msg=(centred, zoomed))
+            assert_same_view(go_home(), home)
+
+            # A note keeps a panned view.
+            pan.click()
+            drag()
+            panned = self.model_shape(page)
+            page.keyboard.press("n")
+            page.get_by_role("textbox", name="Note").fill("Check this corner")
+            page.keyboard.press("Enter")
+            expect(page.locator(".note-row .note-time")).to_have_text(["View 1"])
+            assert_same_view(go_home(), home)
+            page.locator(".note-row .note-time").click()
+            assert_same_view(self.model_shape(page), panned)
             self.assertEqual(problems, [])
             browser.close()
 

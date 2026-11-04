@@ -131,6 +131,7 @@ button.danger { border-color: #713733; color: #ffaaa5; }
 .model-toolbar button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .model-toolbar .model-mode + .model-toggle, .model-toolbar .model-toggle + button:not(.model-toggle) { margin-left: 8px; }
 .model-toolbar .model-zoom { min-width: 34px; font-weight: 700; }
+.model-zoom-pair { display: flex; gap: 6px; }
 .model-stats { position: absolute; z-index: 2; right: 12px; bottom: 12px; color: #d7dcde; font: 11px ui-monospace, monospace; pointer-events: none; }
 .model-status { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; margin: 0; padding: 24px; color: var(--muted); text-align: center; }
 .model-status.warning { inset: auto 16px 50% 16px; border-left: 2px solid var(--warning); }

@@ -426,7 +426,13 @@
     stage.setAttribute("aria-label", `3D viewer for ${item.title}`);
     const canvas = document.createElement("canvas");
     canvas.className = "model-canvas";
-    canvas.setAttribute("aria-label", `3D model ${item.title}. Drag to rotate, right-drag to pan, wheel to zoom.`);
+    const help = element("span", "model-help");
+    const showDragHelp = (panning) => {
+      const [left, right] = panning ? ["pan", "rotate"] : ["rotate", "pan"];
+      help.textContent = `Drag to ${left} · right-drag to ${right} · wheel zooms at the pointer`;
+      canvas.setAttribute("aria-label", `3D model ${item.title}. Drag to ${left}, right-drag to ${right}, wheel zooms at the pointer.`);
+    };
+    showDragHelp(false);
     const toolbar = element("div", "model-toolbar");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-label", "3D view");
@@ -435,6 +441,8 @@
       button.dataset.mode = mode;
       return button;
     });
+    const pan = movieButton("Pan", "Left-drag moves the view", "model-toggle");
+    pan.title = "Left-drag moves the view and right-drag rotates";
     const turntable = movieButton("Turntable", "Spin the model", "model-toggle");
     const gridButton = movieButton("Grid", "Show the floor grid", "model-toggle");
     const reset = movieButton("Reset view", "Reset the camera");
@@ -444,15 +452,17 @@
     zoomIn.title = "Zoom in";
     const note = movieButton("Note", "Add a note at this view", "primary model-note-button");
     note.title = "Add a note at this view (N)";
-    const controls = [...modeButtons, turntable, gridButton, reset, zoomOut, zoomIn, note];
+    const controls = [...modeButtons, pan, turntable, gridButton, reset, zoomOut, zoomIn, note];
     controls.forEach((button) => { button.disabled = true; });
-    toolbar.append(...controls);
+    const zoomPair = element("span", "model-zoom-pair");
+    zoomPair.append(zoomOut, zoomIn);
+    toolbar.append(...modeButtons, pan, turntable, gridButton, reset, zoomPair, note);
     const stats = element("output", "model-stats");
     const status = element("p", "model-status", "Loading model…");
     status.setAttribute("aria-live", "polite");
     const animationBar = element("div", "model-animation");
     animationBar.hidden = true;
-    stage.append(canvas, toolbar, stats, status, animationBar, element("span", "model-help", "Drag to rotate · right-drag to pan · wheel to zoom"));
+    stage.append(canvas, toolbar, stats, status, animationBar, help);
     const fileSection = element("section", "inspector-section model-file-check");
     fileSection.append(element("h3", "", "File check"));
     const printSection = element("section", "inspector-section model-print-check");
@@ -490,10 +500,13 @@
 
     const sync = () => {
       modeButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === viewer.mode)));
+      pan.setAttribute("aria-pressed", String(viewer.pan));
+      showDragHelp(viewer.pan);
       turntable.setAttribute("aria-pressed", String(viewer.turntable));
       gridButton.setAttribute("aria-pressed", String(viewer.grid));
     };
     modeButtons.forEach((button) => button.addEventListener("click", () => { viewer.setMode(button.dataset.mode); sync(); }));
+    pan.addEventListener("click", () => { viewer.setPan(!viewer.pan); sync(); });
     turntable.addEventListener("click", () => { viewer.setTurntable(!viewer.turntable); sync(); });
     gridButton.addEventListener("click", () => { viewer.setGrid(!viewer.grid); sync(); });
     reset.addEventListener("click", () => viewer.resetView());

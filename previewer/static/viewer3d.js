@@ -56,7 +56,10 @@ export async function mount(canvas, { url, format }) {
   controls.minDistance = radius * 0.05;
   controls.maxDistance = radius * 20;
   controls.autoRotateSpeed = 2;
+  controls.zoomToCursor = true;
   controls.addEventListener("start", () => { touched = true; });
+  // The wheel moves the camera inside its own event, so the frame loop's update() then reports no change to draw.
+  controls.addEventListener("change", () => { dirty = true; });
   // The key light rides on the camera, above and to the right, aimed at the model's centre.
   const keyTarget = new THREE.Object3D();
   keyTarget.position.copy(sphere.center);
@@ -104,6 +107,7 @@ export async function mount(canvas, { url, format }) {
     mmPerUnit,
     unitNote: unitNote(kind, mmPerUnit),
     get mode() { return mode; },
+    get pan() { return controls.mouseButtons.LEFT === THREE.MOUSE.PAN; },
     get turntable() { return controls.autoRotate; },
     get grid() { return grid.visible; },
     get playing() { return playing; },
@@ -115,6 +119,12 @@ export async function mount(canvas, { url, format }) {
       mode = value;
       meshes.forEach((mesh) => { mesh.material = value === "textured" ? originals.get(mesh) : value === "clay" ? clay : wire; });
       dirty = true;
+    },
+    // Pan on swaps the drags: left moves the view and right rotates it.
+    setPan(on) {
+      controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+      controls.mouseButtons.RIGHT = on ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+      controls.touches.ONE = on ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
     },
     setTurntable(on) { controls.autoRotate = Boolean(on); dirty = true; },
     setGrid(on) { grid.visible = Boolean(on); dirty = true; },
