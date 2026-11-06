@@ -389,6 +389,19 @@ class Store:
             })
         return {"item_id": item_id, "revision": revision, "document": clean, "updated_at": now}
 
+    def timeline_items(self) -> set[str]:
+        """Items that a timeline in Movies plays. A manifest that can't be read adds none, so its video stays listed."""
+        used: set[str] = set()
+        for item in self.list(state="approved"):
+            if item["kind"] != "movie_project":
+                continue
+            try:
+                clips = json.loads(Path(item["approved_path"] or "").read_text(encoding="utf-8")).get("clips", [])
+            except (OSError, ValueError):
+                continue
+            used.update(clip["item_id"] for clip in clips if isinstance(clip, dict) and isinstance(clip.get("item_id"), str))
+        return used
+
     def get(self, item_id: str) -> dict:
         with self.database.connect() as connection:
             row = connection.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()

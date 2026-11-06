@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sqlite3
 import statistics
 import struct
@@ -563,6 +564,62 @@ class EndToEndProofTests(unittest.TestCase):
             page.wait_for_timeout(500)
             forward.click()
             expect(page.locator(".movie-time")).to_have_text("00:00:15:00 / 00:00:20:00")
+            browser.close()
+
+    def test_movies_lists_a_timeline_without_the_video_it_plays(self):
+        cut = self.approved_video("Cut video", seconds=6)
+        loose = self.approved_video("Loose video", seconds=2)
+        manifest = self.root / "timeline.json"
+        manifest.write_text(json.dumps({"version": 1, "title": "Timeline", "timeline": {"duration_seconds": 6, "frame_rate": 30, "width": 320, "height": 180},
+                                        "clips": [{"item_id": cut["id"], "label": "001 WS", "start_seconds": 0, "end_seconds": 6}]}))
+        status, project = self.submit(self.declaration(manifest, kind="movie_project", title="Timeline"))
+        self.assertEqual(status, 201, project)
+
+        def in_timeline() -> dict:
+            status, _, body = self.request("GET", "/api/items")
+            self.assertEqual(status, 200, body)
+            return {item["title"]: item["in_timeline"] for item in body["items"]}
+
+        # A timeline still waiting in Review Inbox is not in Movies, so its video has to stay listed.
+        self.assertEqual(in_timeline(), {"Timeline": False, "Loose video": False, "Cut video": False})
+        self.assertEqual(self.human(project["id"], "approve", TEST_PIN)[0], 200)
+        self.assertEqual(in_timeline(), {"Timeline": False, "Loose video": False, "Cut video": True})
+        from playwright.sync_api import expect, sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path=self.config.chromium_path)
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(self.base, wait_until="networkidle", timeout=15000)
+            page.click("[data-tab=movies]")
+            expect(page.locator("#movie-count")).to_have_text("2")
+            expect(page.locator("#item-list .item-card")).to_have_count(2)
+            expect(page.locator("#item-list .item-card", has_text="Cut video")).to_have_count(0)
+            expect(page.locator("#item-list .item-card", has_text="Loose video")).to_have_count(1)
+            # The timeline still plays the hidden video.
+            page.locator("#item-list .item-card", has_text="Timeline").click()
+            expect(page.locator("#preview video")).to_have_attribute("src", re.compile(cut["id"]))
+            expect(page.locator(".lane-clip .timeline-marker", has_text="001 WS")).to_have_count(1)
+            # A link straight to the hidden video still opens it.
+            page.goto(f"{self.base}/?item={cut['id']}", wait_until="networkidle", timeout=15000)
+            expect(page.locator("#preview video")).to_have_attribute("src", re.compile(cut["id"]))
+
+            # A timeline whose file can't be read must not take the list down; its video just stays listed.
+            stored = Path(self.server.store.get(project["id"])["approved_path"])
+            moved = stored.with_name(stored.name + ".moved")
+            locked = stored.parent.stat().st_mode
+            stored.parent.chmod(locked | 0o200)
+            stored.rename(moved)
+            self.assertEqual(in_timeline(), {"Timeline": False, "Loose video": False, "Cut video": False})
+            moved.rename(stored)
+            stored.parent.chmod(locked)
+
+            # Delete the timeline and its video comes back, so nothing is left out of reach.
+            self.assertEqual(self.human(project["id"], "delete", TEST_PIN)[0], 200)
+            self.assertEqual(in_timeline(), {"Loose video": False, "Cut video": False})
+            page.goto(self.base, wait_until="networkidle", timeout=15000)
+            page.click("[data-tab=movies]")
+            expect(page.locator("#movie-count")).to_have_text("2")
+            expect(page.locator("#item-list .item-card", has_text="Cut video")).to_have_count(1)
             browser.close()
 
     def make_media(self, name: str, seconds: int = 2, picture: str = "testsrc2=size=320x180:rate=30") -> Path:

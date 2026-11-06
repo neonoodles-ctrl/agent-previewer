@@ -87,7 +87,8 @@
   function inTab(item, tab) {
     if (tab === "artifacts") return item.state === "approved" && artifactKinds.has(item.kind) && !item.placed_by_agent;
     if (tab === "live") return item.state === "approved" && liveKinds.has(item.kind);
-    if (tab === "movies") return item.state === "approved" && (movieKinds.has(item.kind) || (item.placed_by_agent && item.kind === "audio"));
+    // A video a timeline plays lists only as that timeline; a link straight to it still opens it.
+    if (tab === "movies") return item.state === "approved" && !item.in_timeline && (movieKinds.has(item.kind) || (item.placed_by_agent && item.kind === "audio"));
     if (tab === "models") return item.kind === "model3d";
     return item.kind !== "model3d" && (item.state === "candidate" || item.state === "hidden");
   }

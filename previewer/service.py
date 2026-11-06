@@ -66,7 +66,11 @@ class PreviewerHandler(BaseHTTPRequestHandler):
                 })
             elif path == "/api/items":
                 state = parse_qs(parsed.query).get("state", [None])[0]
-                self._json({"items": [_public_item(item) for item in self.server.store.list(state=state)]})
+                used = self.server.store.timeline_items()
+                self._json({"items": [
+                    {**_public_item(item), "in_timeline": item["kind"] == "video" and item["id"] in used}
+                    for item in self.server.store.list(state=state)
+                ]})
             elif path == "/api/capacity":
                 self._json(self.server.store.capacity())
             elif path == "/api/targets":
