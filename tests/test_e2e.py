@@ -566,6 +566,135 @@ class EndToEndProofTests(unittest.TestCase):
             expect(page.locator(".movie-time")).to_have_text("00:00:15:00 / 00:00:20:00")
             browser.close()
 
+    def test_movie_monitor_resizes_zooms_and_pans(self):
+        self.approved_video("Zoom clip", seconds=6)
+        from playwright.sync_api import expect, sync_playwright
+
+        def scale_and_shift(page):
+            transform = page.eval_on_selector("#preview video", "node => getComputedStyle(node).transform")
+            if transform == "none":
+                return 1.0, 0.0, 0.0
+            a, _, _, _, e, f = (float(value) for value in transform[len("matrix("):-1].split(","))
+            return a, e, f
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path=self.config.chromium_path)
+            # A wide screen: the page stops at 1500 px with spare stage either side.
+            page = browser.new_page(viewport={"width": 2560, "height": 1300})
+            page.goto(self.base, wait_until="networkidle", timeout=15000)
+            page.click("[data-tab=movies]")
+            page.locator("#item-list .item-card", has_text="Zoom clip").click()
+            expect(page.locator("#preview video")).to_have_count(1)
+            page.wait_for_timeout(500)
+            viewer = page.locator(".movie-viewer")
+            notes = page.locator(".movie-inspector")
+            detail = page.locator("#detail")
+            stage_room = page.eval_on_selector(".stage", "node => node.clientWidth - parseFloat(getComputedStyle(node).paddingLeft) - parseFloat(getComputedStyle(node).paddingRight)")
+            before_viewer, before_notes = viewer.bounding_box(), notes.bounding_box()
+            self.assertAlmostEqual(detail.bounding_box()["width"], 1500, delta=1)
+            self.assertGreater(stage_room, 1500 + 300)
+            grip = page.get_by_role("button", name="Resize the monitor", exact=False)
+
+            def drag_grip(dx, dy):
+                box = grip.bounding_box()
+                x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + dx, y + dy, steps=5)
+                page.mouse.up()
+                return x + dx, y + dy
+
+            # The corner grip: right widens the monitor past 1500 px into the spare stage, down makes it taller,
+            # the notes keep their width, and the grip stays under the pointer.
+            pointer = drag_grip(150, 120)
+            after_viewer = viewer.bounding_box()
+            self.assertAlmostEqual(after_viewer["height"], before_viewer["height"] + 120, delta=2)
+            self.assertAlmostEqual(after_viewer["width"], before_viewer["width"] + 300, delta=2)
+            self.assertAlmostEqual(notes.bounding_box()["width"], before_notes["width"], delta=1)
+            box = grip.bounding_box()
+            self.assertAlmostEqual(box["x"] + box["width"] / 2, pointer[0], delta=2)
+            self.assertAlmostEqual(box["y"] + box["height"] / 2, pointer[1], delta=2)
+            # Past the stage's edge it stops at the full stage width.
+            drag_grip(2000, 0)
+            self.assertAlmostEqual(detail.bounding_box()["width"], stage_room, delta=1)
+            # A monitor wider than 16:9 shows the whole frame with bars at the sides; the video box never spills out to be cropped.
+            inner = page.eval_on_selector(".movie-viewer", "node => [node.clientWidth, node.clientHeight]")
+            self.assertGreater(inner[0] / inner[1], 16 / 9)
+            video_box, viewer_box = page.locator("#preview video").bounding_box(), viewer.bounding_box()
+            self.assertAlmostEqual(video_box["height"], inner[1], delta=1)
+            self.assertAlmostEqual(video_box["y"], viewer_box["y"] + 1, delta=1)
+            # Left narrows it again.
+            drag_grip(-200, 0)
+            self.assertAlmostEqual(detail.bounding_box()["width"], stage_room - 400, delta=2)
+            after_viewer = viewer.bounding_box()
+            # The size holds when the movie opens again, and a double-click on the grip puts it back.
+            page.reload(wait_until="networkidle")
+            page.click("[data-tab=movies]")
+            page.locator("#item-list .item-card", has_text="Zoom clip").click()
+            expect(page.locator("#preview video")).to_have_count(1)
+            self.assertAlmostEqual(viewer.bounding_box()["height"], after_viewer["height"], delta=2)
+            self.assertAlmostEqual(viewer.bounding_box()["width"], after_viewer["width"], delta=2)
+            grip.dblclick()
+            self.assertAlmostEqual(viewer.bounding_box()["height"], before_viewer["height"], delta=2)
+            self.assertAlmostEqual(viewer.bounding_box()["width"], before_viewer["width"], delta=2)
+            self.assertAlmostEqual(detail.bounding_box()["width"], 1500, delta=1)
+
+            level = page.get_by_role("button", name="Fit the frame to the monitor")
+            expect(level).to_have_text("100%")
+            # Dragging the frame at 100% does nothing: there is nothing to pan to.
+            frame = viewer.bounding_box()
+            centre = (frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2)
+            page.mouse.move(*centre)
+            page.mouse.down()
+            page.mouse.move(centre[0] + 80, centre[1] + 40, steps=4)
+            page.mouse.up()
+            self.assertEqual(scale_and_shift(page), (1.0, 0.0, 0.0))
+
+            page.get_by_role("button", name="Zoom in").click()
+            expect(level).to_have_text("125%")
+            scale, x, y = scale_and_shift(page)
+            self.assertAlmostEqual(scale, 1.25, places=3)
+            # Button zoom holds the middle of the monitor still.
+            inner_w, inner_h = page.eval_on_selector(".movie-viewer", "node => [node.clientWidth, node.clientHeight]")
+            self.assertAlmostEqual(x, inner_w / 2 * (1 - 1.25), delta=1)
+            self.assertAlmostEqual(y, inner_h / 2 * (1 - 1.25), delta=1)
+
+            # The wheel zooms in at the pointer, keeping the point under it still.
+            point = (frame["x"] + frame["width"] * 0.25, frame["y"] + frame["height"] * 0.25)
+            page.mouse.move(*point)
+            page.mouse.wheel(0, -240)
+            page.wait_for_timeout(200)
+            scale2, x2, y2 = scale_and_shift(page)
+            self.assertGreater(scale2, 1.25)
+            px, py = point[0] - frame["x"] - 1, point[1] - frame["y"] - 1
+            self.assertAlmostEqual((px - x) / scale, (px - x2) / scale2, delta=1)
+            self.assertAlmostEqual((py - y) / scale, (py - y2) / scale2, delta=1)
+
+            # Dragging pans; it stops at the frame's edge.
+            page.mouse.move(*centre)
+            page.mouse.down()
+            page.mouse.move(centre[0] - 30, centre[1] - 20, steps=4)
+            page.mouse.up()
+            _, x3, y3 = scale_and_shift(page)
+            self.assertAlmostEqual(x3, x2 - 30, delta=1)
+            self.assertAlmostEqual(y3, y2 - 20, delta=1)
+            page.mouse.move(*centre)
+            page.mouse.down()
+            page.mouse.move(centre[0] + 3000, centre[1] + 3000, steps=4)
+            page.mouse.up()
+            self.assertEqual(scale_and_shift(page)[1:], (0.0, 0.0))
+
+            # A note still marks the whole frame, not the zoomed view.
+            page.get_by_role("button", name="Add a note at this frame").click()
+            expect(page.locator(".note-canvas")).to_have_count(1)
+            self.assertEqual(page.eval_on_selector(".note-canvas", "node => [node.width, node.height]"), [320, 180])
+            page.keyboard.press("Escape")
+
+            level.click()
+            expect(level).to_have_text("100%")
+            self.assertEqual(scale_and_shift(page), (1.0, 0.0, 0.0))
+            browser.close()
+
     def test_movies_lists_a_timeline_without_the_video_it_plays(self):
         cut = self.approved_video("Cut video", seconds=6)
         loose = self.approved_video("Loose video", seconds=2)
@@ -812,7 +941,7 @@ class EndToEndProofTests(unittest.TestCase):
             # The video sits inside frame 4:23 at 24 fps, so it shows that frame.
             self.assertAlmostEqual(page.locator("#preview video").evaluate("(video) => video.currentTime"), (4 * 24 + 23.5) / 24, places=3)
             transport = page.locator(".movie-transport button").all_inner_texts()
-            self.assertEqual(transport, ["−5s", "−1s", "−1f", "Play", "+1f", "+1s", "+5s", "Note"])
+            self.assertEqual(transport, ["−5s", "−1s", "−1f", "Play", "+1f", "+1s", "+5s", "Note", "−", "100%", "+"])
             if EVIDENCE_DIR:
                 EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
                 (EVIDENCE_DIR / "movie-shades.png").write_bytes(page.screenshot(animations="disabled"))

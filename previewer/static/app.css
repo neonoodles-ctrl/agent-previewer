@@ -92,7 +92,7 @@ button.danger { border-color: #713733; color: #ffaaa5; }
 .empty-state h2 { margin: 14px 0 0; color: var(--text); }
 .empty-state p { margin-top: 7px; }
 .empty-glyph { display: grid; place-items: center; width: 70px; height: 70px; border: 1px solid var(--line); border-radius: 18px; color: var(--accent); font-size: 34px; transform: rotate(4deg); }
-.detail { padding: 24px; max-width: 1500px; margin: 0 auto; }
+.detail { padding: 24px; max-width: var(--detail-max, 1500px); margin: 0 auto; }
 .detail.wide { max-width: none; }
 .detail-head { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
 .detail-head h2 { font-size: clamp(22px, 3vw, 34px); letter-spacing: -.04em; margin: 7px 0 5px; }
@@ -183,7 +183,15 @@ button.danger { border-color: #713733; color: #ffaaa5; }
 .movie-panel-head h3, .movie-timeline h3, .movie-inspector h3 { margin: 3px 0 0; font-size: 14px; }
 .movie-resolution, .inspector-count { color: var(--muted); font: 10px/1.2 ui-monospace, monospace; }
 .movie-viewer { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; min-height: 280px; overflow: hidden; border: 1px solid #1c2227; border-radius: 10px; background: #030404; box-shadow: inset 0 0 80px #000; }
-.movie-viewer video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.movie-viewer.sized { aspect-ratio: auto; height: var(--monitor-height); min-height: 180px; }
+/* Pinned to the monitor's edges: in the grid a percentage height falls back to the video's own shape and crops it. */
+.movie-viewer video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; transform-origin: 0 0; }
+.movie-viewer.zoomed video { cursor: grab; touch-action: none; }
+.movie-viewer.panning video { cursor: grabbing; }
+.monitor-grip { position: absolute; right: 0; bottom: 0; z-index: 4; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 0 0 9px 0; background: repeating-linear-gradient(135deg, #000c 0 4px, #c9d1d6 4px 6px); clip-path: polygon(100% 0, 100% 100%, 0 100%); cursor: nwse-resize; touch-action: none; opacity: .85; }
+.monitor-grip:hover, .monitor-grip.dragging, .monitor-grip:focus-visible { background: repeating-linear-gradient(135deg, #000c 0 4px, var(--accent) 4px 6px); opacity: 1; outline: 0; }
+.movie-transport .movie-zoom { min-width: 38px; }
+.movie-transport .movie-zoom-level { min-width: 64px; font-variant-numeric: tabular-nums; }
 .movie-viewer > audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .movie-audio-source { width: min(86%, 720px); display: grid; justify-items: center; gap: 8px; color: var(--muted); text-align: center; }
 .movie-audio-source img { width: 100%; max-height: 190px; object-fit: contain; border-radius: 8px; background: #080a0c; }

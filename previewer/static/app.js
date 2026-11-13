@@ -326,6 +326,8 @@
       renderMovieEditor(item, preview);
       return;
     }
+    // Only the movie monitor's grip widens the page.
+    $("#detail").style.removeProperty("--detail-max");
     if (item.kind === "model3d" && ["candidate", "approved"].includes(item.state)) {
       toolbar.hidden = true;
       preview.replaceChildren();
@@ -730,7 +732,7 @@
     const note = movieButton("Note", "Add a note at this frame", "primary movie-note-button");
     note.title = "Add a note at this frame (N)";
     const time = element("output", "movie-time", `${formatTimecode(state.moviePlayhead || 0, edit.frame_rate)} / ${formatTimecode(edit.duration_seconds, edit.frame_rate)}`);
-    transport.append(back, stepBack, frameBack, play, frameForward, stepForward, forward, note, time);
+    transport.append(back, stepBack, frameBack, play, frameForward, stepForward, forward, note, ...(media?.tagName === "VIDEO" ? zoomableVideo(viewer, media) : []), time);
     viewerPanel.append(viewerHead, viewer, transport);
 
     const notesPanel = buildNotesPanel({
@@ -740,6 +742,7 @@
       sections: [metadataSection(activeMedia || item)],
     });
     const timeline = buildMovieTimeline(edit, (marker) => jumpToMarker(marker));
+    viewer.append(monitorGrip(upper, viewer));
     upper.append(viewerPanel, notesPanel.aside);
     editor.append(upper, timeline.section);
     preview.append(editor);
@@ -831,6 +834,119 @@
     });
     renderNotes();
     updatePlayhead(state.moviePlayhead || 0);
+  }
+
+  // Drag the monitor's corner to size it: sideways widens or narrows the whole movie page,
+  // up to the full stage past its usual 1500 px, while the notes keep their width; down sets the height.
+  // The size is kept for every movie; a double-click on the grip goes back to the default.
+  const monitorSizeKey = "previewer.movieMonitor";
+  function monitorGrip(upper, viewer) {
+    const detail = $("#detail");
+    const grip = movieButton("", "Resize the monitor: drag, or use the arrow keys. Double-click resets", "monitor-grip");
+    grip.title = "Drag to resize the monitor. Double-click resets";
+    const apply = ({ width, height } = {}) => {
+      if (width) detail.style.setProperty("--detail-max", `${Math.round(width)}px`); else detail.style.removeProperty("--detail-max");
+      if (height) viewer.style.setProperty("--monitor-height", `${Math.round(height)}px`); else viewer.style.removeProperty("--monitor-height");
+      viewer.classList.toggle("sized", Boolean(height));
+    };
+    try { apply(JSON.parse(localStorage.getItem(monitorSizeKey)) || {}); } catch { /* size is a convenience */ }
+    const resize = (width, height) => {
+      // The monitor keeps at least 320 px beside the notes; the page can fill the stage but no more.
+      const least = detail.getBoundingClientRect().width - viewer.getBoundingClientRect().width + 320;
+      const stage = getComputedStyle(detail.parentElement);
+      const room = detail.parentElement.clientWidth - parseFloat(stage.paddingLeft) - parseFloat(stage.paddingRight);
+      const size = {
+        width: clamp(width, least, Math.max(least, room)),
+        height: clamp(height, 180, Math.max(180, window.innerHeight * 0.92)),
+      };
+      apply(size);
+      try { localStorage.setItem(monitorSizeKey, JSON.stringify(size)); } catch { /* size is a convenience */ }
+    };
+    let start = null;
+    grip.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      grip.setPointerCapture(event.pointerId);
+      start = { x: event.clientX, y: event.clientY, width: detail.getBoundingClientRect().width, height: viewer.getBoundingClientRect().height };
+      grip.classList.add("dragging");
+    });
+    // The page sits in the middle of the stage, so it grows on both sides: twice the drag keeps the grip under the pointer.
+    grip.addEventListener("pointermove", (event) => {
+      if (start && grip.hasPointerCapture(event.pointerId)) resize(start.width + 2 * (event.clientX - start.x), start.height + (event.clientY - start.y));
+    });
+    grip.addEventListener("lostpointercapture", () => { start = null; grip.classList.remove("dragging"); });
+    grip.addEventListener("dblclick", () => {
+      apply();
+      try { localStorage.removeItem(monitorSizeKey); } catch { /* size is a convenience */ }
+    });
+    grip.addEventListener("keydown", (event) => {
+      const direction = directions[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      resize(detail.getBoundingClientRect().width + direction[0] * 48, viewer.getBoundingClientRect().height + direction[1] * 24);
+    });
+    return grip;
+  }
+
+  // Zoom and pan on the monitor: the wheel zooms at the pointer, the buttons at the middle,
+  // dragging pans, and the level button or a double-click fits the frame again. Notes still mark the whole frame.
+  function zoomableVideo(viewer, video) {
+    const maxZoom = 8;
+    let zoom = 1;
+    let x = 0;
+    let y = 0;
+    const zoomOut = movieButton("−", "Zoom out", "movie-zoom");
+    const level = movieButton("100%", "Fit the frame to the monitor", "movie-zoom-level");
+    const zoomIn = movieButton("+", "Zoom in", "movie-zoom");
+    level.title = "Fit the frame (double-click the picture also fits it)";
+    const apply = () => {
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
+      x = clamp(x, width - width * zoom, 0);
+      y = clamp(y, height - height * zoom, 0);
+      video.style.transform = zoom > 1 ? `translate(${x}px, ${y}px) scale(${zoom})` : "";
+      viewer.classList.toggle("zoomed", zoom > 1);
+      level.textContent = `${Math.round(zoom * 100)}%`;
+    };
+    // (px, py) is the point inside the monitor that stays put.
+    const zoomAt = (factor, px = viewer.clientWidth / 2, py = viewer.clientHeight / 2) => {
+      const next = clamp(zoom * factor, 1, maxZoom);
+      x = px - (px - x) * next / zoom;
+      y = py - (py - y) * next / zoom;
+      zoom = next;
+      apply();
+    };
+    const fit = () => { zoom = 1; x = 0; y = 0; apply(); };
+    zoomOut.addEventListener("click", () => zoomAt(1 / 1.25));
+    zoomIn.addEventListener("click", () => zoomAt(1.25));
+    level.addEventListener("click", fit);
+    video.addEventListener("dblclick", fit);
+    viewer.addEventListener("wheel", (event) => {
+      if (viewer.querySelector(".note-layer")) return;
+      event.preventDefault();
+      // Firefox can report the wheel in lines or pages rather than pixels.
+      const pixels = event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1);
+      const bounds = viewer.getBoundingClientRect();
+      zoomAt(Math.exp(-pixels * 0.002), event.clientX - bounds.left - viewer.clientLeft, event.clientY - bounds.top - viewer.clientTop);
+    }, { passive: false });
+    let drag = null;
+    video.addEventListener("pointerdown", (event) => {
+      if (zoom <= 1 || event.button !== 0) return;
+      event.preventDefault();
+      video.setPointerCapture(event.pointerId);
+      drag = { fromX: event.clientX, fromY: event.clientY, x, y };
+      viewer.classList.add("panning");
+    });
+    video.addEventListener("pointermove", (event) => {
+      if (!drag || !video.hasPointerCapture(event.pointerId)) return;
+      x = drag.x + event.clientX - drag.fromX;
+      y = drag.y + event.clientY - drag.fromY;
+      apply();
+    });
+    video.addEventListener("lostpointercapture", () => { drag = null; viewer.classList.remove("panning"); });
+    // A resized monitor keeps the frame inside its edges.
+    new ResizeObserver(() => { if (zoom > 1) apply(); }).observe(viewer);
+    return [zoomOut, level, zoomIn];
   }
 
   // Voyager-style note: freeze the frame, mark it with a box or freehand,
@@ -1422,7 +1538,7 @@
   const directions = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
   const focusableSelector = "button, a[href], input, select, video[controls], [tabindex]:not([tabindex='-1'])";
   function focusables(scope) {
-    return [...scope.querySelectorAll(focusableSelector)].filter((node) => !node.disabled && !node.matches(".library-resizer") && !node.closest("[hidden]") && node.getClientRects().length && node.getBoundingClientRect().width > 0);
+    return [...scope.querySelectorAll(focusableSelector)].filter((node) => !node.disabled && !node.matches(".library-resizer, .monitor-grip") && !node.closest("[hidden]") && node.getClientRects().length && node.getBoundingClientRect().width > 0);
   }
   function nearest(current, [dx, dy], candidates) {
     const from = current.getBoundingClientRect();
