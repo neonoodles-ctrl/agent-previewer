@@ -188,8 +188,11 @@ button.danger { border-color: #713733; color: #ffaaa5; }
 .movie-viewer video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; transform-origin: 0 0; }
 .movie-viewer.zoomed video { cursor: grab; touch-action: none; }
 .movie-viewer.panning video { cursor: grabbing; }
-.monitor-grip { position: absolute; right: 0; bottom: 0; z-index: 4; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 0 0 9px 0; background: repeating-linear-gradient(135deg, #000c 0 4px, #c9d1d6 4px 6px); clip-path: polygon(100% 0, 100% 100%, 0 100%); cursor: nwse-resize; touch-action: none; opacity: .85; }
-.monitor-grip:hover, .monitor-grip.dragging, .monitor-grip:focus-visible { background: repeating-linear-gradient(135deg, #000c 0 4px, var(--accent) 4px 6px); opacity: 1; outline: 0; }
+/* The whole corner takes the pointer; only the stripes are clipped to a triangle. */
+.monitor-grip, .monitor-grip:hover { position: absolute; right: 0; bottom: 0; z-index: 4; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 0 0 9px 0; background: none; cursor: nwse-resize; touch-action: none; }
+.monitor-grip::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: repeating-linear-gradient(135deg, #000c 0 4px, #c9d1d6 4px 6px); clip-path: polygon(100% 0, 100% 100%, 0 100%); opacity: .85; }
+.monitor-grip:hover::before, .monitor-grip.dragging::before, .monitor-grip:focus-visible::before { background: repeating-linear-gradient(135deg, #000c 0 4px, var(--accent) 4px 6px); opacity: 1; }
+.monitor-grip:focus-visible { outline: 0; }
 .movie-transport .movie-zoom { min-width: 38px; }
 .movie-transport .movie-zoom-level { min-width: 64px; font-variant-numeric: tabular-nums; }
 .movie-viewer > audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

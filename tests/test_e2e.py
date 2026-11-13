@@ -695,6 +695,90 @@ class EndToEndProofTests(unittest.TestCase):
             self.assertEqual(scale_and_shift(page), (1.0, 0.0, 0.0))
             browser.close()
 
+    def test_movie_monitor_wheel_scrolls_at_fit_and_size_keeps_untouched_sides(self):
+        self.approved_video("Edge clip", seconds=6)
+        from playwright.sync_api import expect, sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path=self.config.chromium_path)
+            page = browser.new_page(viewport={"width": 2560, "height": 1300})
+
+            def open_movie():
+                page.goto(self.base, wait_until="networkidle", timeout=15000)
+                page.click("[data-tab=movies]")
+                page.locator("#item-list .item-card", has_text="Edge clip").click()
+                expect(page.locator("#preview video")).to_have_count(1)
+                page.wait_for_timeout(300)
+                # Records whether the monitor kept the last wheel from scrolling the page.
+                page.evaluate("window.addEventListener('wheel', (event) => { window.lastWheelPrevented = event.defaultPrevented; })")
+
+            def wheel(dx, dy, ctrl=False):
+                frame = page.locator(".movie-viewer").bounding_box()
+                page.mouse.move(frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2)
+                if ctrl:
+                    page.keyboard.down("Control")
+                page.mouse.wheel(dx, dy)
+                if ctrl:
+                    page.keyboard.up("Control")
+                page.wait_for_timeout(150)
+                return page.evaluate("window.lastWheelPrevented")
+
+            def saved():
+                return page.evaluate("JSON.parse(localStorage.getItem('previewer.movieMonitor') || '{}')")
+
+            def drag_grip(dx, dy):
+                page.locator(".monitor-grip").scroll_into_view_if_needed()
+                box = page.locator(".monitor-grip").bounding_box()
+                x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                page.mouse.move(x, y)
+                page.mouse.down()
+                page.mouse.move(x + dx, y + dy, steps=5)
+                page.mouse.up()
+
+            open_movie()
+            level = page.get_by_role("button", name="Fit the frame to the monitor")
+            # At 100% the plain wheel scrolls the page, both ways, and sideways scrolling passes too.
+            self.assertFalse(wheel(0, 300))
+            self.assertFalse(wheel(0, -300))
+            expect(level).to_have_text("100%")
+            # Ctrl+wheel zooms in from 100%; once zoomed, the plain wheel zooms, and sideways scrolling still passes.
+            self.assertTrue(wheel(0, -240, ctrl=True))
+            self.assertNotEqual(level.inner_text(), "100%")
+            zoomed = level.inner_text()
+            self.assertTrue(wheel(0, -120))
+            self.assertNotEqual(level.inner_text(), zoomed)
+            self.assertFalse(wheel(240, 0))
+            self.assertTrue(wheel(0, 3000))
+            expect(level).to_have_text("100%")
+            self.assertFalse(wheel(0, 300))
+
+            # A drag straight down saves the height only, so the page keeps its default width.
+            detail = page.locator("#detail")
+            drag_grip(0, 100)
+            self.assertEqual(sorted(saved()), ["height"])
+            self.assertAlmostEqual(detail.bounding_box()["width"], 1500, delta=1)
+            page.locator(".monitor-grip").dblclick()
+            # A drag straight across saves the width only, so the monitor keeps its 16:9 shape.
+            drag_grip(120, 0)
+            self.assertEqual(sorted(saved()), ["width"])
+            expect(page.locator(".movie-viewer")).not_to_have_class(re.compile(r"\bsized\b"))
+            viewer = page.locator(".movie-viewer").bounding_box()
+            self.assertAlmostEqual(viewer["width"] / viewer["height"], 16 / 9, delta=0.02)
+            page.locator(".monitor-grip").dblclick()
+
+            # A width saved in a narrow window cannot squash the monitor beside the notes in a wide one.
+            page.evaluate("localStorage.setItem('previewer.movieMonitor', JSON.stringify({ width: 400, height: 5000 }))")
+            open_movie()
+            self.assertGreaterEqual(page.locator(".movie-viewer").bounding_box()["width"], 319)
+            self.assertLessEqual(page.locator(".movie-viewer").bounding_box()["height"], 1300 * 0.92 + 1)
+            page.locator(".monitor-grip").dblclick()
+
+            # With the preview expanded the page already fills the stage, so a sideways drag saves no width.
+            page.locator("#preview-shell > .expand-toggle").click()
+            drag_grip(-150, -40)
+            self.assertEqual(sorted(saved()), ["height"])
+            browser.close()
+
     def test_movies_lists_a_timeline_without_the_video_it_plays(self):
         cut = self.approved_video("Cut video", seconds=6)
         loose = self.approved_video("Loose video", seconds=2)

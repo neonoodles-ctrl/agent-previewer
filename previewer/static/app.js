@@ -742,10 +742,12 @@
       sections: [metadataSection(activeMedia || item)],
     });
     const timeline = buildMovieTimeline(edit, (marker) => jumpToMarker(marker));
-    viewer.append(monitorGrip(upper, viewer));
+    const monitor = monitorGrip(viewer);
+    viewer.append(monitor.grip);
     upper.append(viewerPanel, notesPanel.aside);
     editor.append(upper, timeline.section);
     preview.append(editor);
+    monitor.restore();
 
     const playhead = editor.querySelector(".movie-playhead");
     const updatePlayhead = (seconds) => {
@@ -838,57 +840,79 @@
 
   // Drag the monitor's corner to size it: sideways widens or narrows the whole movie page,
   // up to the full stage past its usual 1500 px, while the notes keep their width; down sets the height.
-  // The size is kept for every movie; a double-click on the grip goes back to the default.
+  // The size is kept for every movie, only for the sides that were dragged, and is fitted to the window it opens in;
+  // a double-click on the grip goes back to the default. restore() runs once the editor is on the page.
   const monitorSizeKey = "previewer.movieMonitor";
-  function monitorGrip(upper, viewer) {
+  function monitorGrip(viewer) {
     const detail = $("#detail");
     const grip = movieButton("", "Resize the monitor: drag, or use the arrow keys. Double-click resets", "monitor-grip");
     grip.title = "Drag to resize the monitor. Double-click resets";
-    const apply = ({ width, height } = {}) => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(monitorSizeKey)) || {}; } catch { /* size is a convenience */ }
+    const show = ({ width, height }) => {
       if (width) detail.style.setProperty("--detail-max", `${Math.round(width)}px`); else detail.style.removeProperty("--detail-max");
       if (height) viewer.style.setProperty("--monitor-height", `${Math.round(height)}px`); else viewer.style.removeProperty("--monitor-height");
       viewer.classList.toggle("sized", Boolean(height));
     };
-    try { apply(JSON.parse(localStorage.getItem(monitorSizeKey)) || {}); } catch { /* size is a convenience */ }
-    const resize = (width, height) => {
-      // The monitor keeps at least 320 px beside the notes; the page can fill the stage but no more.
-      const least = detail.getBoundingClientRect().width - viewer.getBoundingClientRect().width + 320;
+    // The monitor keeps at least 320 px beside the notes; the page can fill the stage but no more.
+    const limits = () => {
       const stage = getComputedStyle(detail.parentElement);
+      const least = detail.getBoundingClientRect().width - viewer.getBoundingClientRect().width + 320;
       const room = detail.parentElement.clientWidth - parseFloat(stage.paddingLeft) - parseFloat(stage.paddingRight);
-      const size = {
-        width: clamp(width, least, Math.max(least, room)),
-        height: clamp(height, 180, Math.max(180, window.innerHeight * 0.92)),
-      };
-      apply(size);
-      try { localStorage.setItem(monitorSizeKey, JSON.stringify(size)); } catch { /* size is a convenience */ }
+      return { least, room: Math.max(least, room), tallest: Math.max(180, window.innerHeight * 0.92) };
     };
-    let start = null;
+    const fit = ({ width, height }, bounds) => ({
+      ...(width ? { width: clamp(width, bounds.least, bounds.room) } : {}),
+      ...(height ? { height: clamp(height, 180, bounds.tallest) } : {}),
+    });
+    const keep = (size) => {
+      saved = size;
+      try { localStorage.setItem(monitorSizeKey, JSON.stringify(saved)); } catch { /* size is a convenience */ }
+    };
+    // An expanded preview already fills the stage, so the width is left alone there.
+    const widthFree = () => !detail.classList.contains("wide");
+    let drag = null;
     grip.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
       grip.setPointerCapture(event.pointerId);
-      start = { x: event.clientX, y: event.clientY, width: detail.getBoundingClientRect().width, height: viewer.getBoundingClientRect().height };
+      drag = { x: event.clientX, y: event.clientY, width: detail.getBoundingClientRect().width, height: viewer.getBoundingClientRect().height, bounds: limits(), across: false, down: false, size: null };
       grip.classList.add("dragging");
     });
     // The page sits in the middle of the stage, so it grows on both sides: twice the drag keeps the grip under the pointer.
+    // A side counts as dragged once the pointer has moved 4 px along it.
     grip.addEventListener("pointermove", (event) => {
-      if (start && grip.hasPointerCapture(event.pointerId)) resize(start.width + 2 * (event.clientX - start.x), start.height + (event.clientY - start.y));
+      if (!drag || !grip.hasPointerCapture(event.pointerId)) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      drag.across = drag.across || (Math.abs(dx) > 3 && widthFree());
+      drag.down = drag.down || Math.abs(dy) > 3;
+      const changed = fit({ ...(drag.across ? { width: drag.width + 2 * dx } : {}), ...(drag.down ? { height: drag.height + dy } : {}) }, drag.bounds);
+      drag.size = { ...saved, ...changed };
+      show(fit(drag.size, drag.bounds));
     });
-    grip.addEventListener("lostpointercapture", () => { start = null; grip.classList.remove("dragging"); });
+    grip.addEventListener("lostpointercapture", () => {
+      if (drag?.size) keep(drag.size);
+      drag = null;
+      grip.classList.remove("dragging");
+    });
     grip.addEventListener("dblclick", () => {
-      apply();
+      saved = {};
+      show(saved);
       try { localStorage.removeItem(monitorSizeKey); } catch { /* size is a convenience */ }
     });
     grip.addEventListener("keydown", (event) => {
       const direction = directions[event.key];
-      if (!direction) return;
+      if (!direction || (direction[0] && !widthFree())) return;
       event.preventDefault();
-      resize(detail.getBoundingClientRect().width + direction[0] * 48, viewer.getBoundingClientRect().height + direction[1] * 24);
+      const bounds = limits();
+      keep({ ...saved, ...fit(direction[0] ? { width: detail.getBoundingClientRect().width + direction[0] * 48 } : { height: viewer.getBoundingClientRect().height + direction[1] * 24 }, bounds) });
+      show(fit(saved, bounds));
     });
-    return grip;
+    return { grip, restore: () => show(fit(saved, limits())) };
   }
 
-  // Zoom and pan on the monitor: the wheel zooms at the pointer, the buttons at the middle,
+  // Zoom and pan on the monitor: once zoomed the wheel zooms at the pointer, the buttons at the middle,
   // dragging pans, and the level button or a double-click fits the frame again. Notes still mark the whole frame.
   function zoomableVideo(viewer, video) {
     const maxZoom = 8;
@@ -921,8 +945,9 @@
     zoomIn.addEventListener("click", () => zoomAt(1.25));
     level.addEventListener("click", fit);
     video.addEventListener("dblclick", fit);
+    // At 100% the plain wheel scrolls the page; Ctrl+wheel (and a trackpad pinch) zooms in from there.
     viewer.addEventListener("wheel", (event) => {
-      if (viewer.querySelector(".note-layer")) return;
+      if (viewer.querySelector(".note-layer") || !event.deltaY || (zoom <= 1 && !event.ctrlKey)) return;
       event.preventDefault();
       // Firefox can report the wheel in lines or pages rather than pixels.
       const pixels = event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1);
