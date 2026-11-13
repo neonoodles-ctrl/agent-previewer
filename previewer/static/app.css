@@ -182,6 +182,7 @@ button.danger { border-color: #713733; color: #ffaaa5; }
 .movie-panel-head { min-height: 48px; padding: 0 2px 12px; }
 .movie-panel-head h3, .movie-timeline h3, .movie-inspector h3 { margin: 3px 0 0; font-size: 14px; }
 .movie-resolution, .inspector-count { color: var(--muted); font: 10px/1.2 ui-monospace, monospace; }
+.movie-resolution { white-space: nowrap; }
 .movie-viewer { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; min-height: 280px; overflow: hidden; border: 1px solid #1c2227; border-radius: 10px; background: #030404; box-shadow: inset 0 0 80px #000; }
 .movie-viewer.sized { aspect-ratio: auto; height: var(--monitor-height); min-height: 180px; }
 /* Pinned to the monitor's edges: in the grid a percentage height falls back to the video's own shape and crops it. */
@@ -293,6 +294,8 @@ dialog input[aria-invalid="true"] { border-color: var(--danger); }
   .movie-upper { grid-template-columns: 1fr; }
   .movie-viewer-panel { border-right: 0; border-bottom: 1px solid var(--line); }
   .movie-inspector { max-height: none; }
+  /* With the notes underneath, the preview's Expand button sits over the monitor header, so the header keeps clear of it. */
+  .movie-panel-head { padding-right: 76px; }
 }
 
 @media (max-width: 860px) {

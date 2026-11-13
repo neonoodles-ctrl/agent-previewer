@@ -779,6 +779,29 @@ class EndToEndProofTests(unittest.TestCase):
             self.assertEqual(sorted(saved()), ["height"])
             browser.close()
 
+    def test_expand_button_clears_the_movie_monitor_header_at_every_width(self):
+        self.approved_video("A movie whose title runs long enough to reach the right-hand edge of the monitor header", seconds=4)
+        from playwright.sync_api import expect, sync_playwright
+
+        def overlap(a, b):
+            return a["x"] < b["x"] + b["width"] and b["x"] < a["x"] + a["width"] and a["y"] < b["y"] + b["height"] and b["y"] < a["y"] + a["height"]
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, executable_path=self.config.chromium_path)
+            # A 960 px screen, the stacked layout either side of its 1240 px edge, the side-by-side layout, and a phone.
+            for width, height in ((960, 540), (1240, 800), (1241, 800), (1600, 960), (500, 900)):
+                page = browser.new_page(viewport={"width": width, "height": height})
+                page.goto(self.base, wait_until="networkidle", timeout=15000)
+                page.click("[data-tab=movies]")
+                page.locator("#item-list .item-card").first.click()
+                expect(page.locator("#preview video")).to_have_count(1)
+                expand = page.locator("#preview-shell > .expand-toggle").bounding_box()
+                for part in (".movie-resolution", ".movie-panel-head h3", ".movie-panel-head .eyebrow"):
+                    box = page.locator(part).bounding_box()
+                    self.assertFalse(overlap(expand, box), (width, part, expand, box))
+                page.close()
+            browser.close()
+
     def test_movies_lists_a_timeline_without_the_video_it_plays(self):
         cut = self.approved_video("Cut video", seconds=6)
         loose = self.approved_video("Loose video", seconds=2)
